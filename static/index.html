@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Web Quiz</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Login Screen -->
+        <div id="login-screen" class="screen active">
+            <h1>Join Live Quiz</h1>
+            <input type="text" id="username-input" placeholder="Enter your username" autocomplete="off">
+            <button id="join-btn">Join Game</button>
+            <p id="login-error" class="error"></p>
+        </div>
+
+        <!-- Lobby Screen -->
+        <div id="lobby-screen" class="screen">
+            <h1>Waiting Lobby</h1>
+            <p>Waiting for players...</p>
+            <div id="lobby-players" class="player-list"></div>
+            <p id="lobby-status"></p>
+        </div>
+
+        <!-- Quiz Screen -->
+        <div id="quiz-screen" class="screen">
+            <div class="header">
+                <span id="question-counter">Question 1/X</span>
+                <span id="timer" class="timer">10s</span>
+            </div>
+            
+            <h2 id="question-text">Question text goes here</h2>
+            
+            <div id="options-container" class="options-grid">
+                <!-- Options injected by JS -->
+            </div>
+            
+            <input type="text" id="answer-input" placeholder="Type answer or option number" autocomplete="off">
+            <button id="submit-answer-btn">Submit Answer</button>
+            
+            <div id="ack-message" class="ack"></div>
+            <div id="quiz-message" class="message"></div>
+        </div>
+        
+        <!-- Post-Question Leaderboard Screen -->
+        <div id="leaderboard-screen" class="screen">
+            <h1>Current Standings</h1>
+            <div id="leaderboard-list" class="leaderboard"></div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="screen">
+            <h1>Quiz Finished!</h1>
+            <h2 id="winner-text">Winner: </h2>
+            <div id="final-leaderboard" class="leaderboard"></div>
+            <button onclick="location.reload()">Play Again</button>
+        </div>
+    </div>
+
+    <!-- WebSockets App Logic -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

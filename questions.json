@@ -1,0 +1,22 @@
+[
+  {
+    "question": "What is the capital of France?",
+    "options": ["Berlin", "Madrid", "Paris", "Rome"],
+    "answer": "Paris"
+  },
+  {
+    "question": "Which protocol is used for email?",
+    "options": ["HTTP", "SMTP", "FTP", "SSH"],
+    "answer": "SMTP"
+  },
+  {
+    "question": "In the OSI model, which layer oversees end-to-end communication?",
+    "options": ["Network", "Transport", "Data Link", "Session"],
+    "answer": "Transport"
+  },
+  {
+    "question": "What does TCP stand for?",
+    "options": ["Transmission Control Protocol", "Transfer Connect Process", "Terminal Control Protocol", "Transmission Connect Protocol"],
+    "answer": "Transmission Control Protocol"
+  }
+]
