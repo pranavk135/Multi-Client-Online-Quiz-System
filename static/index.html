@@ -3,28 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Nexus Quiz</title>
+    <title>Online Quiz</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="background-grid"></div>
-    <div class="glow-orb"></div>
-    
     <div class="container">
         <!-- Login Screen -->
         <div id="login-screen" class="screen active">
-            <div class="ai-logo"></div>
-            <h1>Initialize Link</h1>
-            <input type="text" id="username-input" placeholder="Enter designated alias" autocomplete="off">
-            <button id="join-btn" class="cyber-btn">Establish Connection</button>
+            <h1>Online Quiz</h1>
+            <input type="text" id="username-input" placeholder="Enter your name" autocomplete="off">
+            <button id="join-btn" class="cyber-btn">Join Quiz</button>
             <p id="login-error" class="error"></p>
         </div>
 
         <!-- Lobby Screen -->
         <div id="lobby-screen" class="screen">
-            <h1>Nexus Gateway</h1>
-            <p class="cyber-text">Awaiting network synchronisation...</p>
+            <h1>Waiting Room</h1>
+            <p>Waiting for all players to join...</p>
             <div id="lobby-players" class="player-list"></div>
             <p id="lobby-status" class="status-pulse"></p>
         </div>
@@ -32,32 +27,32 @@
         <!-- Quiz Screen -->
         <div id="quiz-screen" class="screen">
             <div class="header">
-                <span id="question-counter" class="cyber-badge">Node 1/X</span>
+                <span id="question-counter" class="cyber-badge">Question 1/X</span>
                 <span id="timer" class="timer">10s</span>
             </div>
-            
-            <h2 id="question-text">Query processing...</h2>
-            
+
+            <h2 id="question-text">Loading question...</h2>
+
             <div id="options-container" class="options-grid">
                 <!-- Options injected by JS -->
             </div>
-            
+
             <div id="ack-message" class="ack"></div>
             <div id="quiz-message" class="message"></div>
         </div>
-        
+
         <!-- Post-Question Leaderboard Screen -->
         <div id="leaderboard-screen" class="screen">
-            <h1>Network Hierarchy</h1>
+            <h1>Leaderboard</h1>
             <div id="leaderboard-list" class="leaderboard"></div>
         </div>
 
         <!-- Game Over Screen -->
         <div id="game-over-screen" class="screen">
-            <h1>Simulation Complete</h1>
-            <h2 class="glow-text">Prime Entity: <span id="winner-text"></span></h2>
+            <h1>Quiz Over!</h1>
+            <h2>Winner: <span id="winner-text" style="color:#4a90e2;"></span></h2>
             <div id="final-leaderboard" class="leaderboard"></div>
-            <button class="cyber-btn reboot-btn" onclick="location.reload()">Reboot Sequence</button>
+            <button class="cyber-btn reboot-btn" onclick="location.reload()">Play Again</button>
         </div>
     </div>
 

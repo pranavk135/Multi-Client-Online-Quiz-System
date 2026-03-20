@@ -112,7 +112,7 @@ function handleServerMessage(data) {
             ackMessage.textContent = "";
             quizMessage.textContent = "";
             
-            questionCounter.textContent = `Node ${data.number}/${data.total}`;
+            questionCounter.textContent = `Question ${data.number}/${data.total}`;
             questionText.textContent = data.question;
             timerEl.textContent = `${data.time_limit}s`;
             
@@ -122,12 +122,13 @@ function handleServerMessage(data) {
                 const btn = document.createElement("button");
                 btn.className = "option-btn";
                 
-                // Add stylized prefix
+                // Simple letter label: A, B, C, D
+                const labels = ["A", "B", "C", "D"];
                 const prefixSpan = document.createElement("span");
-                prefixSpan.style.color = "var(--neon-pink)";
+                prefixSpan.style.fontWeight = "700";
                 prefixSpan.style.marginRight = "12px";
-                prefixSpan.style.fontFamily = "var(--font-heading)";
-                prefixSpan.textContent = `[0${idx + 1}]`;
+                prefixSpan.style.color = "#4a90e2";
+                prefixSpan.textContent = `${labels[idx]}.`;
                 
                 btn.appendChild(prefixSpan);
                 btn.appendChild(document.createTextNode(opt));
