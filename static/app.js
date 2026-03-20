@@ -19,8 +19,6 @@ const questionCounter = document.getElementById("question-counter");
 const timerEl = document.getElementById("timer");
 const questionText = document.getElementById("question-text");
 const optionsContainer = document.getElementById("options-container");
-const answerInput = document.getElementById("answer-input");
-const submitBtn = document.getElementById("submit-answer-btn");
 const ackMessage = document.getElementById("ack-message");
 const quizMessage = document.getElementById("quiz-message");
 
@@ -36,11 +34,10 @@ function showScreen(screenEl) {
 joinBtn.addEventListener("click", () => {
     username = usernameInput.value.trim();
     if (!username) {
-        loginError.textContent = "Please enter a username.";
+        loginError.textContent = "Identity required for uplink.";
         return;
     }
     
-    // Connect to WebSocket using wss (secure) if secure page, or ws if local testing
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${window.location.host}/ws/${encodeURIComponent(username)}`);
     
@@ -56,37 +53,40 @@ joinBtn.addEventListener("click", () => {
     
     ws.onclose = () => {
         if(loginScreen.classList.contains('active')){
-           loginError.textContent = "Could not connect to server.";
+           loginError.textContent = "Connection forcibly closed by remote host.";
         } else {
-           alert("Disconnected from server.");
+           alert("Link severed. Please reload.");
            location.reload();
         }
     };
 });
 
-// Allow Enter key to submit login
 usernameInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") joinBtn.click();
 });
 
-// Allow Enter key to submit answer
-answerInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") submitBtn.click();
-});
-
-submitBtn.addEventListener("click", () => {
-    const answer = answerInput.value.trim();
-    if (answer && ws.readyState === WebSocket.OPEN) {
-        ws.send(answer);
-        answerInput.value = "";
+// Broadcasts selection to the socket and visually locks options
+function selectOption(optionIndex) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        // Send the selected option index as a string
+        ws.send(optionIndex.toString());
+        
+        // Disable all buttons and highlight the chosen one
+        const buttons = optionsContainer.querySelectorAll('.option-btn');
+        buttons.forEach((btn, idx) => {
+            btn.disabled = true;
+            if ((idx + 1) === optionIndex) {
+                btn.classList.add('selected');
+            }
+        });
     }
-});
+}
 
 function handleServerMessage(data) {
     switch (data.type) {
         case "error":
             loginError.textContent = data.message;
-            ws.close();
+            if(ws) ws.close();
             break;
             
         case "system":
@@ -111,28 +111,43 @@ function handleServerMessage(data) {
             showScreen(quizScreen);
             ackMessage.textContent = "";
             quizMessage.textContent = "";
-            answerInput.value = "";
-            answerInput.focus();
             
-            questionCounter.textContent = `Question ${data.number}/${data.total}`;
+            questionCounter.textContent = `Node ${data.number}/${data.total}`;
             questionText.textContent = data.question;
             timerEl.textContent = `${data.time_limit}s`;
             
+            // Generate interactive buttons
             optionsContainer.innerHTML = "";
             data.options.forEach((opt, idx) => {
-                const div = document.createElement("div");
-                div.className = "option-card";
-                div.textContent = `${idx + 1}. ${opt}`;
-                optionsContainer.appendChild(div);
+                const btn = document.createElement("button");
+                btn.className = "option-btn";
+                
+                // Add stylized prefix
+                const prefixSpan = document.createElement("span");
+                prefixSpan.style.color = "var(--neon-pink)";
+                prefixSpan.style.marginRight = "12px";
+                prefixSpan.style.fontFamily = "var(--font-heading)";
+                prefixSpan.textContent = `[0${idx + 1}]`;
+                
+                btn.appendChild(prefixSpan);
+                btn.appendChild(document.createTextNode(opt));
+                
+                // Hook up click event
+                btn.onclick = () => selectOption(idx + 1);
+                optionsContainer.appendChild(btn);
             });
             break;
             
         case "timer":
             timerEl.textContent = `${data.time_left}s`;
             if (data.time_left <= 3) {
-                timerEl.style.color = "var(--error)";
+                timerEl.style.color = "var(--neon-pink)";
+                timerEl.style.borderColor = "var(--neon-pink)";
+                timerEl.style.boxShadow = "0 0 15px rgba(255, 0, 127, 0.5)";
             } else {
                 timerEl.style.color = "";
+                timerEl.style.borderColor = "";
+                timerEl.style.boxShadow = "";
             }
             break;
             
@@ -151,7 +166,7 @@ function handleServerMessage(data) {
             
         case "quiz_over":
             showScreen(gameOverScreen);
-            winnerText.textContent = `Winner: ${data.winner}!`;
+            winnerText.textContent = data.winner;
             renderLeaderboard(finalLeaderboard, data.scores);
             break;
     }
@@ -164,11 +179,11 @@ function renderLeaderboard(container, scores) {
         row.className = "lb-row";
         
         const nameSpan = document.createElement("span");
-        nameSpan.textContent = `${idx + 1}. ${entry.username}`;
+        nameSpan.textContent = `0${idx + 1}. ${entry.username}`;
         
         const scoreSpan = document.createElement("span");
         scoreSpan.textContent = entry.score;
-        scoreSpan.style.color = "var(--accent)";
+        scoreSpan.style.color = "var(--neon-cyan)";
         
         row.appendChild(nameSpan);
         row.appendChild(scoreSpan);
