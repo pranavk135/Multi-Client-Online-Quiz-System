@@ -1,6 +1,7 @@
 import socket
 import threading
 import sys
+import ssl
 
 HOST = "127.0.0.1"
 PORT = 5000
@@ -31,7 +32,13 @@ def main():
         print("Username cannot be empty.")
         return
 
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Create a TLS context that accepts self-signed certs (for local/demo use)
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket = ssl_context.wrap_socket(raw_socket, server_hostname=HOST)
     try:
         client_socket.connect((HOST, PORT))
     except Exception as e:

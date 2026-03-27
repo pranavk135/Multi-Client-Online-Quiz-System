@@ -2,6 +2,7 @@ import socket
 import threading
 import json
 import time
+import ssl
 
 HOST = "127.0.0.1"
 PORT = 5000
@@ -10,8 +11,13 @@ TIME_LIMIT = 10
 
 class QuizServer:
     def __init__(self):
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # Wrap with TLS using the self-signed certificate
+        self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.ssl_context.load_cert_chain(certfile="certs/cert.pem", keyfile="certs/key.pem")
+        self.server_socket = self.ssl_context.wrap_socket(raw_socket, server_side=True)
         self.clients = []
         self.scores = {}
         self.current_responses = {}

@@ -187,3 +187,13 @@ async def websocket_endpoint(websocket: WebSocket, username: str):
     except WebSocketDisconnect:
         manager.disconnect(username)
         logger.info(f"{username} disconnected.")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=443,
+        ssl_keyfile="certs/key.pem",
+        ssl_certfile="certs/cert.pem",
+    )
