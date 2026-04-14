@@ -3,57 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Online Quiz</title>
+    <title>QuizNet — Multi-Client Online Quiz</title>
+    <meta name="description" content="A real-time multi-client online quiz system secured with SSL/TLS. Built with TCP sockets, WebSockets, and FastAPI.">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="container">
-        <!-- Login Screen -->
+    <div class="card">
+
+        <!-- ── Login Screen ── -->
         <div id="login-screen" class="screen active">
-            <h1>Online Quiz</h1>
-            <input type="text" id="username-input" placeholder="Enter your name" autocomplete="off">
-            <button id="join-btn" class="cyber-btn">Join Quiz</button>
-            <p id="login-error" class="error"></p>
+            <div class="brand">
+                <div class="brand-icon"></div>
+                <div class="brand-name">Quiz<span>Net</span></div>
+            </div>
+            <h1 class="screen-title">Join the Quiz</h1>
+            <p class="screen-sub">Enter a username to connect to the live session.</p>
+
+            <label class="label" for="username-input">Username</label>
+            <input type="text" id="username-input" placeholder="e.g. Alice" autocomplete="off" maxlength="20">
+            <button id="join-btn" class="btn-primary">Connect →</button>
+            <p id="login-error" class="error-msg"></p>
+
+            <div class="ssl-badge">SSL/TLS Encrypted</div>
         </div>
 
-        <!-- Lobby Screen -->
+        <!-- ── Lobby Screen ── -->
         <div id="lobby-screen" class="screen">
-            <h1>Waiting Room</h1>
-            <p>Waiting for all players to join...</p>
-            <div id="lobby-players" class="player-list"></div>
-            <p id="lobby-status" class="status-pulse"></p>
+            <div class="brand">
+                <div class="brand-icon"></div>
+                <div class="brand-name">Quiz<span>Net</span></div>
+            </div>
+            <h1 class="screen-title">Waiting Room</h1>
+            <p class="screen-sub" id="lobby-sub">Waiting for all players to connect…</p>
+
+            <label class="label">Connected Players</label>
+            <div id="lobby-players" class="player-grid"></div>
+
+            <div class="waiting-bar">
+                <div class="waiting-bar-fill" id="lobby-bar" style="width: 0%"></div>
+            </div>
+            <p class="lobby-count" id="lobby-count">0 / 3</p>
         </div>
 
-        <!-- Quiz Screen -->
+        <!-- ── Quiz Screen ── -->
         <div id="quiz-screen" class="screen">
-            <div class="header">
-                <span id="question-counter" class="cyber-badge">Question 1/X</span>
-                <span id="timer" class="timer">10s</span>
+            <div class="quiz-header">
+                <span id="question-counter" class="q-counter">Question 1 / 7</span>
+                <span id="timer" class="timer-badge">10s</span>
             </div>
 
-            <h2 id="question-text">Loading question...</h2>
+            <p id="question-text" class="question-text">Loading…</p>
 
-            <div id="options-container" class="options-grid">
-                <!-- Options injected by JS -->
-            </div>
+            <div id="options-container" class="options-list"></div>
 
-            <div id="ack-message" class="ack"></div>
-            <div id="quiz-message" class="message"></div>
+            <p id="ack-message" class="ack-msg"></p>
+            <p id="quiz-message" class="info-msg"></p>
         </div>
 
-        <!-- Post-Question Leaderboard Screen -->
+        <!-- ── Leaderboard Screen ── -->
         <div id="leaderboard-screen" class="screen">
-            <h1>Leaderboard</h1>
-            <div id="leaderboard-list" class="leaderboard"></div>
+            <h1 class="screen-title">Leaderboard</h1>
+            <p class="screen-sub" id="lb-result-msg"></p>
+            <div id="leaderboard-list" class="lb-list"></div>
         </div>
 
-        <!-- Game Over Screen -->
+        <!-- ── Game Over Screen ── -->
         <div id="game-over-screen" class="screen">
-            <h1>Quiz Over!</h1>
-            <h2>Winner: <span id="winner-text" style="color:#4a90e2;"></span></h2>
-            <div id="final-leaderboard" class="leaderboard"></div>
-            <button class="cyber-btn reboot-btn" onclick="location.reload()">Play Again</button>
+            <h1 class="screen-title">Quiz Over!</h1>
+            <div class="winner-banner">
+                <p class="winner-label">🏆 Winner</p>
+                <p class="winner-name" id="winner-text">—</p>
+            </div>
+            <label class="label">Final Rankings</label>
+            <div id="final-leaderboard" class="lb-list"></div>
+
+            <button class="btn-primary btn-danger" onclick="location.reload()">Play Again</button>
         </div>
+
     </div>
 
     <script src="/static/app.js"></script>

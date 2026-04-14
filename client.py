@@ -15,6 +15,11 @@ def receive_messages(sock):
                 sock.close()
                 sys.exit(0)
             
+            # Handle ping/pong for latency measurement
+            if msg.strip() == "__PING__":
+                sock.send("__PONG__".encode())
+                continue
+            
             # Print the received message to the terminal
             print(msg)
         except Exception as e:

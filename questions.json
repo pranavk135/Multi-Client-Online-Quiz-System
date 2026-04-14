@@ -1,22 +1,37 @@
 [
   {
-    "question": "What is the capital of France?",
-    "options": ["Berlin", "Madrid", "Paris", "Rome"],
-    "answer": "Paris"
-  },
-  {
-    "question": "Which protocol is used for email?",
-    "options": ["HTTP", "SMTP", "FTP", "SSH"],
-    "answer": "SMTP"
-  },
-  {
-    "question": "In the OSI model, which layer oversees end-to-end communication?",
-    "options": ["Network", "Transport", "Data Link", "Session"],
-    "answer": "Transport"
+    "question": "Which layer of the OSI model is responsible for end-to-end error detection and flow control?",
+    "options": ["Network Layer", "Data Link Layer", "Transport Layer", "Session Layer"],
+    "answer": "Transport Layer"
   },
   {
     "question": "What does TCP stand for?",
-    "options": ["Transmission Control Protocol", "Transfer Connect Process", "Terminal Control Protocol", "Transmission Connect Protocol"],
+    "options": ["Transmission Control Protocol", "Transfer Connect Protocol", "Terminal Control Protocol", "Transmission Connect Process"],
     "answer": "Transmission Control Protocol"
+  },
+  {
+    "question": "Which protocol is used to securely transfer files over a network using encryption?",
+    "options": ["FTP", "TFTP", "SFTP", "HTTP"],
+    "answer": "SFTP"
+  },
+  {
+    "question": "In SSL/TLS handshake, what does the server send to prove its identity to the client?",
+    "options": ["Public Key", "Digital Certificate", "Session Token", "MAC Address"],
+    "answer": "Digital Certificate"
+  },
+  {
+    "question": "Which of the following is a connection-oriented protocol?",
+    "options": ["UDP", "ICMP", "TCP", "ARP"],
+    "answer": "TCP"
+  },
+  {
+    "question": "What is the default port number for HTTPS?",
+    "options": ["80", "8080", "22", "443"],
+    "answer": "443"
+  },
+  {
+    "question": "Which protocol translates domain names into IP addresses?",
+    "options": ["DHCP", "ARP", "DNS", "NAT"],
+    "answer": "DNS"
   }
 ]
