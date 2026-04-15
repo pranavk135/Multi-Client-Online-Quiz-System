@@ -4,73 +4,80 @@ import time
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from typing import List, Dict, Any
+from typing import Dict
 import asyncio
-import os
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)s  %(message)s",
+    datefmt="%H:%M:%S"
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-# Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def get_index():
     return FileResponse("static/index.html")
 
-# Quiz Engine variables
-NUM_PLAYERS = 3
-TIME_LIMIT = 10
-
-LATENCY_PINGS = 3  # Number of pings to average for latency measurement
+NUM_PLAYERS   = 2       # Default: 2 players (override with --players N)
+TIME_LIMIT    = 10
+LATENCY_PINGS = 3
 
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
+        self.client_ips: Dict[str, str] = {}
         self.scores: Dict[str, int] = {}
         self.current_responses: Dict[str, str] = {}
         self.accepting_answers: bool = False
         self.quiz_started: bool = False
+        self.latencies: Dict[str, float] = {}
+        self.response_times: Dict[str, list] = {}
+        self.adjusted_times: Dict[str, list] = {}
+        self.answer_timestamps: Dict[str, float] = {}
+        self.question_send_time: float = 0
+        self.pong_received: Dict[str, float] = {}
 
-        # Latency & fairness tracking
-        self.latencies: Dict[str, float] = {}            # username -> one-way latency (seconds)
-        self.response_times: Dict[str, list] = {}        # username -> list of raw response times
-        self.adjusted_times: Dict[str, list] = {}        # username -> list of latency-adjusted times
-        self.answer_timestamps: Dict[str, float] = {}    # username -> timestamp when answer received
-        self.question_send_time: float = 0               # timestamp when current question was sent
-        self.pong_received: Dict[str, float] = {}        # username -> pong receive timestamp
-        
         try:
             with open("questions.json", "r") as f:
                 self.questions = json.load(f)
         except Exception as e:
-            logger.error(f"Error loading questions: {e}")
+            logger.error(f"Error loading questions.json: {e}")
             self.questions = []
 
     async def connect(self, websocket: WebSocket, username: str):
         await websocket.accept()
-        
-        if username in self.active_connections or self.quiz_started:
-            await websocket.send_json({"type": "error", "message": "Username already taken or quiz has started."})
+
+        client_ip   = websocket.client.host
+        client_port = websocket.client.port
+
+        if username in self.active_connections:
+            await websocket.send_json({"type": "error", "message": "Username already taken."})
+            await websocket.close()
+            return False
+
+        if self.quiz_started:
+            await websocket.send_json({"type": "error", "message": "Quiz already in progress."})
             await websocket.close()
             return False
 
         self.active_connections[username] = websocket
+        self.client_ips[username] = f"{client_ip}:{client_port}"
         self.scores[username] = 0
         self.response_times[username] = []
         self.adjusted_times[username] = []
-        logger.info(f"{username} connected. Total: {len(self.active_connections)}")
-        
-        # Broadcast player join
+
+        logger.info(
+            f"[CONNECT]  {username:15s}  IP: {client_ip}:{client_port}  "
+            f"({len(self.active_connections)}/{NUM_PLAYERS})"
+        )
+
         await self.broadcast({
             "type": "system",
-            "message": f"{username} has joined the quiz! ({len(self.active_connections)}/{NUM_PLAYERS})"
+            "message": f"{username} joined! ({len(self.active_connections)}/{NUM_PLAYERS})"
         })
-        
-        # Update waiting lobby UI
         await self.broadcast({
             "type": "lobby_update",
             "players": list(self.active_connections.keys()),
@@ -79,15 +86,21 @@ class ConnectionManager:
 
         if len(self.active_connections) == NUM_PLAYERS and not self.quiz_started:
             asyncio.create_task(self.start_quiz())
-            
+
         return True
 
     def disconnect(self, username: str):
-        if username in self.active_connections:
-            del self.active_connections[username]
-        if username in self.scores and not self.quiz_started:
-            del self.scores[username]
-            # If they leave before quiz starts, notify others
+        ip = self.client_ips.pop(username, "unknown")
+        self.active_connections.pop(username, None)
+
+        if not self.quiz_started:
+            self.scores.pop(username, None)
+            self.response_times.pop(username, None)
+            self.adjusted_times.pop(username, None)
+            logger.info(
+                f"[DISCONNECT] {username} ({ip}) left lobby. "
+                f"Players: {len(self.active_connections)}/{NUM_PLAYERS}"
+            )
             asyncio.create_task(self.broadcast({
                 "type": "lobby_update",
                 "players": list(self.active_connections.keys()),
@@ -95,19 +108,31 @@ class ConnectionManager:
             }))
             asyncio.create_task(self.broadcast({
                 "type": "system",
-                "message": f"{username} disconnected."
+                "message": f"{username} disconnected. "
+                           f"Waiting... ({len(self.active_connections)}/{NUM_PLAYERS})"
             }))
+        else:
+            logger.info(f"[DISCONNECT] {username} ({ip}) left mid-quiz.")
 
     async def broadcast(self, data: dict):
-        for connection in self.active_connections.values():
+        dead = []
+        for uname, conn in self.active_connections.items():
             try:
-                await connection.send_json(data)
-            except Exception as e:
-                logger.error(f"Error broadcasting to client: {e}")
+                await conn.send_json(data)
+            except Exception:
+                dead.append(uname)
+        for uname in dead:
+            self.disconnect(uname)
 
     async def start_quiz(self):
         self.quiz_started = True
-        logger.info("Starting quiz...")
+        logger.info("=" * 52)
+        logger.info("QUIZ STARTING")
+        logger.info("Connected clients:")
+        for uname, ip in self.client_ips.items():
+            logger.info(f"  {uname:15s}  {ip}")
+        logger.info("=" * 52)
+
         await self.broadcast({
             "type": "system",
             "message": "All players connected! Measuring network latency..."
@@ -115,54 +140,45 @@ class ConnectionManager:
         await self.measure_latency()
         await self.broadcast({
             "type": "system",
-            "message": "Latency measured! The quiz is starting in 3 seconds..."
+            "message": "Latency measured! Quiz starts in 3 seconds..."
         })
         await asyncio.sleep(3)
         await self.run_quiz()
 
     async def measure_latency(self):
-        """Measure network latency for each client using WebSocket ping-pong."""
-        logger.info("Measuring network latency for all players...")
-        for username, ws in self.active_connections.items():
+        logger.info("Measuring latency for all players...")
+        for username, ws in list(self.active_connections.items()):
             rtts = []
             try:
                 for _ in range(LATENCY_PINGS):
                     self.pong_received.pop(username, None)
                     ping_time = time.time()
                     await ws.send_json({"type": "ping"})
-                    # Wait for pong (up to 5 seconds)
                     for _ in range(50):
                         if username in self.pong_received:
-                            rtt = self.pong_received[username] - ping_time
-                            rtts.append(rtt)
+                            rtts.append(self.pong_received[username] - ping_time)
                             break
                         await asyncio.sleep(0.1)
                     await asyncio.sleep(0.1)
             except Exception as e:
-                logger.error(f"Latency measurement failed for {username}: {e}")
+                logger.error(f"Latency ping failed for {username}: {e}")
 
-            if rtts:
-                avg_rtt = sum(rtts) / len(rtts)
-                self.latencies[username] = avg_rtt / 2  # one-way latency
-            else:
-                self.latencies[username] = 0
+            self.latencies[username] = (sum(rtts) / len(rtts) / 2) if rtts else 0
 
-        # Broadcast latency results to all clients
+        logger.info("Latency results (one-way):")
         latency_data = []
-        for username, latency in self.latencies.items():
-            latency_data.append({"username": username, "latency_ms": round(latency * 1000, 1)})
-        await self.broadcast({
-            "type": "latency_results",
-            "results": latency_data
-        })
-        logger.info(f"Latency results: {latency_data}")
+        for uname, lat in self.latencies.items():
+            ms = round(lat * 1000, 1)
+            logger.info(f"  {uname:15s}  {ms} ms")
+            latency_data.append({"username": uname, "latency_ms": ms})
+
+        await self.broadcast({"type": "latency_results", "results": latency_data})
 
     async def run_quiz(self):
         for idx, q in enumerate(self.questions):
             self.current_responses.clear()
             self.answer_timestamps.clear()
-            
-            # Send Question
+
             self.question_send_time = time.time()
             await self.broadcast({
                 "type": "question",
@@ -172,44 +188,41 @@ class ConnectionManager:
                 "options": q["options"],
                 "time_limit": TIME_LIMIT
             })
-            
+            logger.info(f"[Q{idx+1}] {q['question'][:70]}")
+
             self.accepting_answers = True
-            
-            # Timer wait
             for i in range(TIME_LIMIT, 0, -1):
                 await self.broadcast({"type": "timer", "time_left": i})
                 await asyncio.sleep(1)
-                
+
             self.accepting_answers = False
             await self.broadcast({"type": "timer", "time_left": 0})
-            
-            # Evaluate responses
+
             correct_answer = q["answer"]
-            correct_idx = str(q["options"].index(correct_answer) + 1)
-            
+            correct_idx    = str(q["options"].index(correct_answer) + 1)
+
             await self.broadcast({
                 "type": "answer_result",
                 "correct_answer": correct_answer,
-                "message": f"Time's up! The correct answer was: {correct_answer}"
+                "message": f"Time's up! Correct answer: {correct_answer}"
             })
-            
-            for username, response in self.current_responses.items():
-                if response.lower() == correct_answer.lower() or response == correct_idx:
-                    self.scores[username] += 10
 
-            # Record response times for this question
+            for uname, response in self.current_responses.items():
+                if response.lower() == correct_answer.lower() or response == correct_idx:
+                    self.scores[uname] += 10
+
             for uname in list(self.active_connections.keys()):
                 if uname in self.answer_timestamps:
-                    raw_time = self.answer_timestamps[uname] - self.question_send_time
-                    adjusted = max(0, raw_time - self.latencies.get(uname, 0))
-                    self.response_times[uname].append(raw_time)
-                    self.adjusted_times[uname].append(adjusted)
+                    raw = self.answer_timestamps[uname] - self.question_send_time
+                    adj = max(0, raw - self.latencies.get(uname, 0))
+                    self.response_times[uname].append(raw)
+                    self.adjusted_times[uname].append(adj)
                 else:
                     self.response_times[uname].append(TIME_LIMIT)
                     self.adjusted_times[uname].append(TIME_LIMIT)
-                    
+
             await self.send_leaderboard()
-            await asyncio.sleep(5)  # Pause before next question
+            await asyncio.sleep(5)
 
         await self.end_quiz()
 
@@ -230,12 +243,12 @@ class ConnectionManager:
             "winner": winner
         })
 
-        # Print fairness report to server terminal only
         self.print_fairness_report()
-        logger.info("Quiz finished.")
-        # Reset state for a new game
+        logger.info("Quiz finished. Resetting state.")
+
         self.quiz_started = False
         self.active_connections.clear()
+        self.client_ips.clear()
         self.scores.clear()
         self.current_responses.clear()
         self.latencies.clear()
@@ -244,35 +257,38 @@ class ConnectionManager:
         self.answer_timestamps.clear()
 
     def print_fairness_report(self):
-        """Print fairness evaluation report to server terminal."""
-        report = "\n" + "=" * 50 + "\n"
-        report += "   LATENCY & FAIRNESS EVALUATION REPORT\n"
-        report += "=" * 50 + "\n"
+        report  = "\n" + "=" * 52 + "\n"
+        report += "      LATENCY & FAIRNESS EVALUATION REPORT\n"
+        report += "=" * 52 + "\n"
 
-        report += "\n[1] Network Latency (One-Way)\n" + "-" * 35 + "\n"
-        for user in self.scores:
-            lat = self.latencies.get(user, 0)
-            report += f"  {user:15s} : {lat*1000:6.1f} ms\n"
+        report += "\n[1] Client IPs\n" + "-" * 35 + "\n"
+        for uname, ip in self.client_ips.items():
+            report += f"  {uname:15s} : {ip}\n"
 
-        report += "\n[2] Avg Response Times\n" + "-" * 35 + "\n"
-        report += f"  {'Player':15s} | {'Raw (ms)':>10s} | {'Adjusted (ms)':>14s}\n"
+        report += "\n[2] Network Latency (One-Way)\n" + "-" * 35 + "\n"
+        for uname in self.scores:
+            lat = self.latencies.get(uname, 0)
+            report += f"  {uname:15s} : {lat*1000:6.1f} ms\n"
+
+        report += "\n[3] Avg Response Times\n" + "-" * 35 + "\n"
+        report += f"  {'Player':15s} | {'Raw (ms)':>10s} | {'Adjusted (ms)':>13s}\n"
         avg_adjusted = {}
-        for user in self.scores:
-            raw_list = self.response_times.get(user, [])
-            adj_list = self.adjusted_times.get(user, [])
+        for uname in self.scores:
+            raw_list = self.response_times.get(uname, [])
+            adj_list = self.adjusted_times.get(uname, [])
             if raw_list:
                 avg_raw = (sum(raw_list) / len(raw_list)) * 1000
                 avg_adj = (sum(adj_list) / len(adj_list)) * 1000
-                avg_adjusted[user] = avg_adj
-                report += f"  {user:15s} | {avg_raw:10.1f} | {avg_adj:14.1f}\n"
+                avg_adjusted[uname] = avg_adj
+                report += f"  {uname:15s} | {avg_raw:10.1f} | {avg_adj:13.1f}\n"
 
-        report += "\n[3] Jain's Fairness Index\n" + "-" * 35 + "\n"
+        report += "\n[4] Jain's Fairness Index\n" + "-" * 35 + "\n"
         if avg_adjusted and len(avg_adjusted) > 1:
-            values = list(avg_adjusted.values())
-            n = len(values)
-            sum_x = sum(values)
-            sum_x2 = sum(v * v for v in values)
-            jfi = (sum_x ** 2) / (n * sum_x2) if sum_x2 > 0 else 1.0
+            vals   = list(avg_adjusted.values())
+            n      = len(vals)
+            sum_x  = sum(vals)
+            sum_x2 = sum(v * v for v in vals)
+            jfi    = (sum_x ** 2) / (n * sum_x2) if sum_x2 > 0 else 1.0
             report += f"  JFI = {jfi:.4f}  (1.0 = perfectly fair)\n"
             if jfi >= 0.95:
                 report += "  Verdict: FAIR - minimal latency bias\n"
@@ -280,36 +296,42 @@ class ConnectionManager:
                 report += "  Verdict: MODERATE - some latency advantage exists\n"
             else:
                 report += "  Verdict: UNFAIR - significant latency disparity\n"
+        else:
+            report += "  Not enough data.\n"
 
-        report += "\n[4] Per-Question Response Times (ms)\n" + "-" * 35 + "\n"
-        users = list(self.scores.keys())
+        report += "\n[5] Per-Question Response Times (ms)\n" + "-" * 35 + "\n"
+        users  = list(self.scores.keys())
         header = f"  {'Q#':>3s}"
         for u in users:
-            header += f" | {u:>10s}"
+            header += f" | {u:>12s}"
         report += header + "\n"
         for i in range(len(self.questions)):
             row = f"  {i+1:3d}"
             for u in users:
                 rt_list = self.response_times.get(u, [])
-                row += f" | {rt_list[i]*1000:10.1f}" if i < len(rt_list) else f" | {'—':>10s}"
+                row += f" | {rt_list[i]*1000:12.1f}" if i < len(rt_list) else f" | {'—':>12s}"
             report += row + "\n"
 
-        report += "\n" + "=" * 50 + "\n"
+        report += "\n" + "=" * 52 + "\n"
         print(report)
+
 
 manager = ConnectionManager()
 
 @app.websocket("/ws/{username}")
 async def websocket_endpoint(websocket: WebSocket, username: str):
+    client_ip   = websocket.client.host
+    client_port = websocket.client.port
+    logger.info(f"[WS HANDSHAKE] {username} from {client_ip}:{client_port}")
+
     success = await manager.connect(websocket, username)
     if not success:
         return
-        
+
     try:
         while True:
             data = await websocket.receive_text()
 
-            # Try to parse as JSON (for pong messages)
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "pong":
@@ -318,21 +340,40 @@ async def websocket_endpoint(websocket: WebSocket, username: str):
             except (json.JSONDecodeError, AttributeError):
                 pass
 
-            # Handle as quiz answer (only accept the first answer per question)
             if manager.accepting_answers and username not in manager.current_responses:
                 manager.answer_timestamps[username] = time.time()
                 manager.current_responses[username] = data.strip()
+                logger.info(f"[ANSWER] {username}: '{data.strip()}'")
                 await websocket.send_json({"type": "ack", "message": "Answer received!"})
+
     except WebSocketDisconnect:
         manager.disconnect(username)
-        logger.info(f"{username} disconnected.")
+        logger.info(f"[DISCONNECT] {username} ({client_ip}:{client_port})")
+
 
 if __name__ == "__main__":
     import uvicorn
+    import argparse
+
+    parser = argparse.ArgumentParser(description="QuizNet Web Server")
+    parser.add_argument("--port", type=int, default=8443, help="Port to listen on (default: 8443)")
+    parser.add_argument("--players", type=int, default=NUM_PLAYERS, help=f"Number of players (default: {NUM_PLAYERS})")
+    args = parser.parse_args()
+
+    NUM_PLAYERS = args.players
+
+    print("=" * 55)
+    print("  QUIZNET WEB SERVER — HTTPS/WSS (TLS)")
+    print("=" * 55)
+    print(f"  Port          : {args.port}")
+    print(f"  Players needed: {NUM_PLAYERS}")
+    print(f"  Open browser  : https://<SERVER_IP>:{args.port}")
+    print("=" * 55)
+
     uvicorn.run(
         app,
-        host="0.0.0.0",
-        port=443,
+        host="0.0.0.0",              # Listen on all interfaces for LAN
+        port=args.port,
         ssl_keyfile="certs/key.pem",
         ssl_certfile="certs/cert.pem",
     )

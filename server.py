@@ -3,16 +3,18 @@ import threading
 import json
 import time
 import ssl
-import math
+import sys
 
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"          # Listen on ALL interfaces (required for LAN)
 PORT = 5000
-NUM_PLAYERS = 3
+NUM_PLAYERS = 2            # Default: 1 server + 1 client (override via CLI)
 TIME_LIMIT = 10
-LATENCY_PINGS = 3  # Number of pings to average for latency measurement
+LATENCY_PINGS = 3          # Number of pings to average for latency measurement
+
 
 class QuizServer:
-    def __init__(self):
+    def __init__(self, num_players=NUM_PLAYERS):
+        self.num_players = num_players
         raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
@@ -20,6 +22,7 @@ class QuizServer:
         self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.ssl_context.load_cert_chain(certfile="certs/cert.pem", keyfile="certs/key.pem")
         self.server_socket = self.ssl_context.wrap_socket(raw_socket, server_side=True)
+
         self.clients = []
         self.scores = {}
         self.current_responses = {}
@@ -31,7 +34,8 @@ class QuizServer:
         self.adjusted_times = {}      # username -> list of latency-adjusted response times
         self.answer_timestamps = {}   # username -> timestamp when answer was received
         self.question_send_time = 0   # timestamp when current question was broadcast
-        
+        self.recv_buffers = {}        # username -> partial receive buffer
+
         try:
             with open("questions.json", "r") as f:
                 self.questions = json.load(f)
@@ -39,59 +43,139 @@ class QuizServer:
             print("questions.json not found! Exiting.")
             exit(1)
 
+    # ── Protocol helpers ─────────────────────────────────────────────────────
+    def send_msg(self, conn, data):
+        """Send a newline-delimited JSON message over TCP/TLS."""
+        try:
+            payload = json.dumps(data) + "\n"
+            conn.sendall(payload.encode("utf-8"))
+        except Exception:
+            pass
+
+    def send_text(self, conn, text):
+        """Send a simple text message wrapped in JSON."""
+        self.send_msg(conn, {"type": "text", "message": text})
+
+    def recv_one_msg(self, conn, username, timeout=None):
+        """Receive exactly one newline-delimited JSON message. Returns parsed dict or None."""
+        if timeout is not None:
+            conn.settimeout(timeout)
+
+        buf = self.recv_buffers.get(username, "")
+
+        while "\n" not in buf:
+            try:
+                chunk = conn.recv(4096).decode("utf-8")
+                if not chunk:
+                    return None
+                buf += chunk
+            except socket.timeout:
+                self.recv_buffers[username] = buf
+                return None
+            except Exception:
+                return None
+
+        line, rest = buf.split("\n", 1)
+        self.recv_buffers[username] = rest
+
+        if timeout is not None:
+            conn.settimeout(None)
+
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            return {"type": "raw", "data": line}
+
+    # ── Broadcast ────────────────────────────────────────────────────────────
+    def broadcast(self, message):
+        """Broadcast a plain-text message to every connected client."""
+        for conn, _ in self.clients:
+            self.send_text(conn, message)
+
+    def broadcast_json(self, data):
+        """Broadcast a JSON object to every connected client."""
+        for conn, _ in self.clients:
+            self.send_msg(conn, data)
+
+    # ── Server start ─────────────────────────────────────────────────────────
     def start(self):
         self.server_socket.bind((HOST, PORT))
         self.server_socket.listen()
-        print(f"Server started on {HOST}:{PORT}. Waiting for {NUM_PLAYERS} players...")
 
-        while len(self.clients) < NUM_PLAYERS:
-            conn, addr = self.server_socket.accept()
-            # Expect the first message to be the username
-            username = conn.recv(1024).decode('utf-8').strip()
-            
-            if not username or username in self.scores:
-                conn.send("Invalid or duplicate username. Disconnecting.\n".encode())
+        # Discover and display the server's LAN IP(s)
+        import socket as _s
+        hostname = _s.gethostname()
+        try:
+            local_ips = _s.gethostbyname_ex(hostname)[2]
+        except Exception:
+            local_ips = ["127.0.0.1"]
+
+        print("=" * 55)
+        print("  QUIZNET SERVER - TCP/TLS")
+        print("=" * 55)
+        print(f"  Port          : {PORT}")
+        print(f"  Players needed: {self.num_players}")
+        print(f"  Server IPs    : {', '.join(local_ips)}")
+        print(f"  Clients run   : python client.py <SERVER_IP>")
+        print("=" * 55)
+        print(f"\nWaiting for {self.num_players} players to connect...\n")
+
+        while len(self.clients) < self.num_players:
+            try:
+                conn, addr = self.server_socket.accept()
+            except Exception:
+                break
+
+            # First message from client: {"type": "join", "username": "..."}
+            msg = self.recv_one_msg(conn, f"_pending_{addr}", timeout=10)
+            if not msg or msg.get("type") != "join":
+                self.send_msg(conn, {"type": "error", "message": "Invalid handshake."})
                 conn.close()
                 continue
-                
+
+            username = msg.get("username", "").strip()
+            if not username or username in self.scores:
+                self.send_msg(conn, {"type": "error", "message": "Invalid or duplicate username."})
+                conn.close()
+                continue
+
             self.clients.append((conn, username))
             self.scores[username] = 0
             self.response_times[username] = []
             self.adjusted_times[username] = []
-            print(f"{username} joined from {addr}")
-            self.broadcast(f"{username} has joined the quiz! ({len(self.clients)}/{NUM_PLAYERS})\n")
+            self.recv_buffers[username] = self.recv_buffers.pop(f"_pending_{addr}", "")
 
-        print("All players connected.")
-        self.broadcast("\n--- All players connected! Measuring network latency... ---\n")
+            print(f"  [+] {username} joined from {addr[0]}:{addr[1]}")
+            self.broadcast(f"{username} has joined the quiz! ({len(self.clients)}/{self.num_players})")
+
+        print(f"\nAll {self.num_players} players connected!")
+        self.broadcast(f"\n--- All players connected! Measuring network latency... ---")
         self.measure_latency()
 
         # Start client listener threads after latency measurement
         for conn, username in self.clients:
             threading.Thread(target=self.client_handler, args=(conn, username), daemon=True).start()
 
-        self.broadcast("\n--- The quiz is starting in 3 seconds... ---\n")
+        self.broadcast("\n--- The quiz is starting in 3 seconds... ---")
         time.sleep(3)
         self.run_quiz()
 
+    # ── Latency measurement ──────────────────────────────────────────────────
     def measure_latency(self):
-        """Measure network latency for each client using multiple ping-pong rounds."""
-        print("Measuring network latency for all players...")
+        print("\nMeasuring network latency for all players...")
         for conn, username in self.clients:
             rtts = []
             try:
-                conn.settimeout(5)
                 for _ in range(LATENCY_PINGS):
                     ping_time = time.time()
-                    conn.send("__PING__".encode())
-                    response = conn.recv(1024).decode('utf-8').strip()
+                    self.send_msg(conn, {"type": "ping"})
+                    resp = self.recv_one_msg(conn, username, timeout=5)
                     pong_time = time.time()
-                    if response == "__PONG__":
+                    if resp and resp.get("type") == "pong":
                         rtts.append(pong_time - ping_time)
-                    time.sleep(0.1)  # Small gap between pings
-                conn.settimeout(None)
+                    time.sleep(0.1)
             except Exception as e:
-                print(f"Latency measurement failed for {username}: {e}")
-                conn.settimeout(None)
+                print(f"  Latency measurement failed for {username}: {e}")
 
             if rtts:
                 avg_rtt = sum(rtts) / len(rtts)
@@ -99,61 +183,58 @@ class QuizServer:
             else:
                 self.latencies[username] = 0
 
-        # Broadcast latency results
+        # Display and broadcast latency results
         latency_msg = "\n--- Network Latency Results ---\n"
         for username, latency in self.latencies.items():
             latency_msg += f"  {username}: {latency*1000:.1f} ms (one-way)\n"
         self.broadcast(latency_msg)
         print(latency_msg)
 
+    # ── Client listener thread ───────────────────────────────────────────────
     def client_handler(self, conn, username):
         while True:
             try:
-                msg = conn.recv(1024).decode('utf-8').strip()
-                if not msg:
+                msg = self.recv_one_msg(conn, username)
+                if msg is None:
                     break
-                
+
+                answer = msg.get("data") or msg.get("answer", "")
+
                 # Only record the FIRST answer if we are currently accepting them
-                if self.accepting_answers and username not in self.current_responses:
+                if self.accepting_answers and username not in self.current_responses and answer:
                     self.answer_timestamps[username] = time.time()
-                    self.current_responses[username] = msg
-            except:
+                    self.current_responses[username] = answer
+            except Exception:
                 break
 
-    def broadcast(self, message):
-        for conn, _ in self.clients:
-            try:
-                conn.send(message.encode())
-            except:
-                pass
-
+    # ── Quiz loop ────────────────────────────────────────────────────────────
     def run_quiz(self):
         for idx, q in enumerate(self.questions):
             self.current_responses.clear()
             self.answer_timestamps.clear()
-            
+
             # Formulate question string
             q_text = f"\n--- Question {idx + 1}/{len(self.questions)} ---\n"
             q_text += q["question"] + "\n"
             for i, opt in enumerate(q["options"]):
                 q_text += f"{i+1}. {opt}\n"
-            q_text += f"\nYou have {TIME_LIMIT} seconds to answer! Type the exact option text or number.\n"
-            
+            q_text += f"\nYou have {TIME_LIMIT} seconds to answer! Type the option number.\n"
+
             self.question_send_time = time.time()
             self.broadcast(q_text)
             self.accepting_answers = True
-            
+
             # Wait for replies within the time limit
             time.sleep(TIME_LIMIT)
-            
+
             self.accepting_answers = False
-            
+
             # Evaluate responses
             correct_answer = q["answer"]
             correct_idx = str(q["options"].index(correct_answer) + 1)
-            
-            self.broadcast(f"\nTime's up! The correct answer was: {correct_answer}\n")
-            
+
+            self.broadcast(f"\nTime's up! The correct answer was: {correct_answer}")
+
             for username, response in self.current_responses.items():
                 if response.lower() == correct_answer.lower() or response == correct_idx:
                     self.scores[username] += 10
@@ -166,48 +247,48 @@ class QuizServer:
                     self.response_times[uname].append(raw_time)
                     self.adjusted_times[uname].append(adjusted)
                 else:
-                    # Player did not answer — record TIME_LIMIT as response time
                     self.response_times[uname].append(TIME_LIMIT)
                     self.adjusted_times[uname].append(TIME_LIMIT)
-                    
+
             self.send_leaderboard()
-            time.sleep(5) # Pause before next question
+            time.sleep(5)  # Pause before next question
 
         self.end_quiz()
 
     def send_leaderboard(self):
         leaderboard = "\n--- Current Leaderboard ---\n"
         sorted_scores = sorted(self.scores.items(), key=lambda x: x[1], reverse=True)
-        
+
         for rank, (user, score) in enumerate(sorted_scores, 1):
             leaderboard += f"{rank}. {user}: {score} points\n"
-            
+
         self.broadcast(leaderboard)
 
     def end_quiz(self):
         final_msg = "\n=== QUIZ OVER ===\nFinal Rankings:\n"
         sorted_scores = sorted(self.scores.items(), key=lambda x: x[1], reverse=True)
-        
+
         for rank, (user, score) in enumerate(sorted_scores, 1):
             final_msg += f"{rank}. {user}: {score} points\n"
-            
+
         if sorted_scores:
             final_msg += f"\nWinner: {sorted_scores[0][0]}!\n"
-            
+
         self.broadcast(final_msg)
         time.sleep(1)
 
         # Send fairness evaluation report
-        self.broadcast(self.generate_fairness_report())
+        report = self.generate_fairness_report()
+        self.broadcast(report)
         print("Quiz finished. Closing connections.")
-        
+
         # Give clients time to receive the final message before closing
         time.sleep(2)
-        
+
         for conn, _ in self.clients:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
         self.server_socket.close()
 
@@ -263,11 +344,11 @@ class QuizServer:
                 jfi = 1.0
             report += f"  JFI = {jfi:.4f}  (1.0 = perfectly fair)\n"
             if jfi >= 0.95:
-                report += "  Verdict: ✓ FAIR — minimal latency bias\n"
+                report += "  Verdict: FAIR - minimal latency bias\n"
             elif jfi >= 0.80:
-                report += "  Verdict: ~ MODERATE — some latency advantage exists\n"
+                report += "  Verdict: MODERATE - some latency advantage exists\n"
             else:
-                report += "  Verdict: ✗ UNFAIR — significant latency disparity\n"
+                report += "  Verdict: UNFAIR - significant latency disparity\n"
         else:
             report += "  Not enough data to compute fairness index.\n"
 
@@ -287,13 +368,25 @@ class QuizServer:
                 if i < len(rt_list):
                     row += f" | {rt_list[i]*1000:10.1f}"
                 else:
-                    row += f" | {'—':>10s}"
+                    row += f" | {'--':>10s}"
             report += row + "\n"
 
         report += "\n" + "=" * 50 + "\n"
         print(report)
         return report
 
+
 if __name__ == "__main__":
-    server = QuizServer()
+    # Parse optional command-line argument for number of players
+    players = NUM_PLAYERS
+    if len(sys.argv) > 1:
+        try:
+            players = int(sys.argv[1])
+            if players < 1:
+                players = NUM_PLAYERS
+        except ValueError:
+            print(f"Usage: python server.py [num_players]  (default: {NUM_PLAYERS})")
+            sys.exit(1)
+
+    server = QuizServer(num_players=players)
     server.start()

@@ -34,8 +34,9 @@ const lbResultMsg   = document.getElementById("lb-result-msg");
 // ── Game Over ─────────────────────────────────────────────────────────────────
 const finalLb       = document.getElementById("final-leaderboard");
 const winnerText    = document.getElementById("winner-text");
+const fairnessDiv   = document.getElementById("fairness-report");
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────
 const LABELS = ["A", "B", "C", "D", "E"];
 
 function showScreen(el) {
@@ -68,7 +69,7 @@ function renderLeaderboard(container, scores, highlightWinner = false) {
     });
 }
 
-// ── Join / Connect ───────────────────────────────────────────────────────────
+// ── Join / Connect ───────────────────────────────────────────────────────
 function connect() {
     username = usernameInput.value.trim();
     if (!username) {
@@ -102,8 +103,11 @@ function connect() {
 
     ws.onclose = () => {
         if (!loginScreen.classList.contains("active")) {
-            alert("Connection closed. Please reload.");
-            location.reload();
+            // Don't reload on game over screen — let users see the results
+            if (!gameOverScreen.classList.contains("active")) {
+                alert("Connection closed. Please reload.");
+                location.reload();
+            }
         } else {
             joinBtn.textContent = "Connect →";
             joinBtn.disabled = false;
@@ -116,7 +120,7 @@ usernameInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") connect();
 });
 
-// ── Answer Selection ──────────────────────────────────────────────────────────
+// ── Answer Selection ──────────────────────────────────────────────────────
 function selectOption(index) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -129,7 +133,7 @@ function selectOption(index) {
     });
 }
 
-// ── Fairness Report Renderer ─────────────────────────────────────────────────
+// ── Fairness Report Renderer ─────────────────────────────────────────────
 function renderFairnessReport(container, fairness) {
     if (!fairness) return;
     container.innerHTML = "";
@@ -205,7 +209,7 @@ function renderFairnessReport(container, fairness) {
     }
 }
 
-// ── Message Handler ───────────────────────────────────────────────────────────
+// ── Message Handler ───────────────────────────────────────────────────────
 function handleMessage(data) {
     switch (data.type) {
 
@@ -311,6 +315,13 @@ function handleMessage(data) {
             showScreen(gameOverScreen);
             winnerText.textContent = data.winner;
             renderLeaderboard(finalLb, data.scores);
+            break;
+
+        case "fairness_report":
+            // Render the fairness report on the game over screen
+            if (fairnessDiv && data.fairness) {
+                renderFairnessReport(fairnessDiv, data.fairness);
+            }
             break;
     }
 }
