@@ -1,6 +1,6 @@
 # QuizNet — Multi-Client Online Quiz System
 
-A real-time, multi-client quiz system built with Python that runs across **connected computers on a LAN** using **TCP sockets with TLS/SSL encryption**. Designed for a Computer Networks mini-project demonstrating networking concepts verifiable via **Wireshark**.
+A real-time, multi-client quiz system built with Python that runs across **connected computers on a LAN** using **TCP sockets with TLS/SSL encryption**. Uses a **multi-threaded architecture** with one dedicated thread per client (blocking I/O). Designed for a Computer Networks mini-project demonstrating networking concepts verifiable via **Wireshark**.
 
 ---
 
@@ -29,7 +29,7 @@ A real-time, multi-client quiz system built with Python that runs across **conne
 │                                                             │
 │   ┌─────────────┐         ┌──────────────────┐             │
 │   │  server.py   │         │  web_server.py   │             │
-│   │ (TCP Socket) │         │ (FastAPI + WSS)  │             │
+│   │ (TCP Socket) │         │ (Multi-Threaded) │             │
 │   │  Port 5000   │         │   Port 8443      │             │
 │   └──────┬───────┘         └────────┬─────────┘             │
 │          │ TLS/SSL                   │ TLS/SSL               │
@@ -56,6 +56,19 @@ Security     :  TLS 1.2/1.3 (encryption, authentication)
 Network      :  IPv4 (LAN)
 ```
 
+**Web Server Threading Model:**
+```
+Main Thread ──── WebSocket Server (accepts TCP connections over TLS)
+     │              ├── Client Thread: "Alice"   (blocking recv/send)
+     │              ├── Client Thread: "Bob"     (blocking recv/send)
+     │              └── Client Thread: "Charlie" (blocking recv/send)
+     │
+     └── Quiz Controller Thread (quiz logic, broadcasts, timer)
+
+Synchronization: threading.Lock + threading.Event
+I/O Model:       Blocking (one thread per client)
+```
+
 ---
 
 ## ✨ Features
@@ -64,6 +77,8 @@ Network      :  IPv4 (LAN)
 |---------|-------------|
 | **TCP Sockets** | Reliable, connection-oriented communication |
 | **TLS/SSL Encryption** | All traffic encrypted with self-signed certificates |
+| **Multi-Threaded** | One dedicated thread per client (blocking I/O, no asyncio) |
+| **Thread Synchronization** | `threading.Lock` + `threading.Event` for shared state |
 | **Multi-Client Support** | 2-3 simultaneous players |
 | **Real-Time Leaderboard** | Live score updates after each question |
 | **Latency Measurement** | Ping-pong based RTT calculation |
@@ -170,9 +185,10 @@ python client.py 192.168.1.42 Alice    # Username as argument
 - **Best for**: Wireshark analysis (clean TCP/TLS traffic)
 
 ### Mode 2: Web-Based (HTTPS + WebSocket)
-- **Server**: `web_server.py` — FastAPI with HTTPS and Secure WebSocket
+- **Server**: `web_server.py` — Multi-threaded WebSocket server with TLS (one thread per client)
 - **Client**: Any web browser
 - **Port**: 8443
+- **Concurrency**: `threading.Thread` per client, `threading.Lock`/`Event` for synchronization
 - **Best for**: User-friendly interface with visual leaderboard
 
 ---
@@ -259,9 +275,9 @@ For your project report, capture screenshots showing:
 Mini-Project/
 ├── server.py           # TCP socket server with TLS (terminal clients)
 ├── client.py           # TCP socket client with TLS (terminal client)
-├── web_server.py       # FastAPI web server with HTTPS/WSS (browser clients)
+├── web_server.py       # Multi-threaded WebSocket server (one thread per client, no asyncio)
 ├── questions.json      # Quiz questions database (7 networking questions)
-├── requirements.txt    # Python dependencies (fastapi, uvicorn, websockets)
+├── requirements.txt    # Python dependencies (websockets>=13.0)
 ├── test_quiz_mvp.py    # Automated test script (2 simulated clients)
 ├── README.md           # This file
 ├── certs/
